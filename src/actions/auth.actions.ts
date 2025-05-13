@@ -24,6 +24,7 @@ export type FormState = {
   type: 'success' | 'error';
 } | null;
 
+const HOME_PAGE = '/';
 
 export async function signupAction(prevState: FormState, formData: FormData): Promise<FormState> {
   const validatedFields = SignupSchema.safeParse(Object.fromEntries(formData.entries()));
@@ -63,7 +64,7 @@ export async function signupAction(prevState: FormState, formData: FormData): Pr
     return { message: 'An unexpected error occurred. Please try again.', type: 'error' };
   }
   
-  redirect('/profile');
+  redirect(HOME_PAGE);
   // return { message: 'Account created successfully! Redirecting...', type: 'success' };
 }
 
@@ -101,7 +102,7 @@ export async function loginAction(prevState: FormState, formData: FormData): Pro
     return { message: 'An unexpected error occurred. Please try again.', type: 'error' };
   }
 
-  redirect('/profile');
+  redirect(HOME_PAGE);
   // return { message: 'Logged in successfully! Redirecting...', type: 'success' };
 }
 

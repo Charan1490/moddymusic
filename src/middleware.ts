@@ -3,9 +3,14 @@ import { NextResponse } from 'next/server';
 import { decrypt, updateSessionCookie } from '@/lib/auth'; 
 import type { SessionPayload } from '@/types';
 
-const PROTECTED_ROUTES = ['/profile'];
-const AUTH_ROUTES = ['/login', '/signup'];
-const PUBLIC_ROUTES = ['/']; // Add any other public routes here
+// Define routes
+const HOME_PAGE = '/';
+const PROFILE_PAGE = '/profile';
+const LOGIN_PAGE = '/login';
+const SIGNUP_PAGE = '/signup';
+
+const PROTECTED_PAGES = [HOME_PAGE, PROFILE_PAGE];
+const AUTH_PAGES = [LOGIN_PAGE, SIGNUP_PAGE];
 
 export async function middleware(request: NextRequest) {
   const sessionCookie = request.cookies.get('session')?.value;
@@ -17,36 +22,45 @@ export async function middleware(request: NextRequest) {
 
   const { pathname } = request.nextUrl;
 
-  const isProtectedRoute = PROTECTED_ROUTES.some(route => pathname.startsWith(route));
-  const isAuthRoute = AUTH_ROUTES.some(route => pathname.startsWith(route));
+  const requestedPageIsProtected = PROTECTED_PAGES.includes(pathname);
+  const requestedPageIsAuth = AUTH_PAGES.includes(pathname);
 
-  if (isProtectedRoute && !currentUser) {
-    // User is not authenticated and trying to access a protected route
-    const loginUrl = new URL('/login', request.url);
-    loginUrl.searchParams.set('redirect_to', pathname); // Optional: redirect back after login
+  // Handle unauthenticated users trying to access protected pages
+  if (requestedPageIsProtected && !currentUser) {
+    const loginUrl = new URL(LOGIN_PAGE, request.url);
+    // Preserve the intended destination for redirection after login, unless it's the home page.
+    if (pathname !== HOME_PAGE) {
+      loginUrl.searchParams.set('redirect_to', pathname);
+    }
     return NextResponse.redirect(loginUrl);
   }
 
-  if (isAuthRoute && currentUser) {
-    // User is authenticated and trying to access login/signup page
-    return NextResponse.redirect(new URL('/profile', request.url));
-  }
-  
-  // Attempt to refresh session for authenticated users on any route
-  // to keep the session alive during activity.
-  // This needs to be handled carefully to avoid redirect loops or performance issues.
-  // Only update if there's a current user and it's not an API route to avoid issues.
-  if (currentUser && !pathname.startsWith('/api')) {
-     const response = await updateSessionCookie(request);
-     if (response) return response; // If session was updated, return the response with new cookie
+  // Handle authenticated users trying to access auth pages (login/signup)
+  if (requestedPageIsAuth && currentUser) {
+    // Redirect to the page they were trying to access before login, or to home page
+    const redirectTo = request.nextUrl.searchParams.get('redirect_to');
+    // Ensure redirectTo is a protected page to avoid open redirect vulnerabilities if it's user-supplied.
+    // However, here redirectTo is typically set by our own middleware.
+    if (redirectTo && PROTECTED_PAGES.includes(redirectTo)) {
+        return NextResponse.redirect(new URL(redirectTo, request.url));
+    }
+    return NextResponse.redirect(new URL(HOME_PAGE, request.url));
   }
 
+  // Refresh session for authenticated users on non-API routes
+  if (currentUser && !pathname.startsWith('/api')) {
+     const response = await updateSessionCookie(request);
+     // If updateSessionCookie returns a response (e.g., with a new cookie), use it.
+     // Otherwise, continue with NextResponse.next().
+     if (response) return response;
+  }
 
   return NextResponse.next();
 }
 
 export const config = {
   // Match all routes except for API routes, static files, and image optimization files
+  // This ensures middleware runs for all relevant page navigations.
   matcher: [
     '/((?!api|_next/static|_next/image|favicon.ico|.*\\..*).*)',
   ],
