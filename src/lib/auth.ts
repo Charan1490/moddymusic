@@ -47,7 +47,8 @@ export async function createSession(userId: string, email: string): Promise<void
   const sessionPayload: SessionPayload = { userId, email, expiresAt };
   const session = await encrypt(sessionPayload);
 
-  cookies().set('session', session, {
+  const cookieStore = await cookies();
+  cookieStore.set('session', session, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
     expires: expiresAt,
@@ -57,16 +58,19 @@ export async function createSession(userId: string, email: string): Promise<void
 }
 
 export async function getSession(): Promise<SessionPayload | null> {
-  const sessionCookie = cookies().get('session')?.value;
+  const cookieStore = await cookies();
+  const sessionCookie = cookieStore.get('session')?.value;
   if (!sessionCookie) return null;
   return decrypt(sessionCookie);
 }
 
 export async function deleteSession(): Promise<void> {
-  cookies().set('session', '', { expires: new Date(0), path: '/' });
+  const cookieStore = await cookies();
+  cookieStore.set('session', '', { expires: new Date(0), path: '/' });
 }
 
 // For middleware usage if session needs to be updated/refreshed
+// This function uses request.cookies and response.cookies, not next/headers cookies(), so it's not affected by the `await cookies()` change.
 export async function updateSessionCookie(request: NextRequest): Promise<NextResponse | null> {
   const sessionCookie = request.cookies.get('session')?.value;
   if (!sessionCookie) return null;
@@ -100,3 +104,4 @@ export async function updateSessionCookie(request: NextRequest): Promise<NextRes
   });
   return response;
 }
+
