@@ -7,24 +7,20 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Camera, Webcam, Loader2, AlertCircle } from "lucide-react";
 import { useToast } from "@/hooks/use-toast";
-
-// Possible moods the simulated "backend" can return
-const possibleMoods = ["Happy", "Sad", "Energetic", "Calm"];
+import { detectMoodFromImage } from "@/ai/flows/detect-mood-flow"; // Import the new AI flow
 
 interface MoodDetectorProps {
-  // Renamed prop for clarity
   onMoodDetected: (mood: string) => void;
-  isLoading: boolean;
+  isLoading: boolean; // This isLoading is for playlist generation, not mood detection itself
 }
 
 export default function MoodDetector({ onMoodDetected, isLoading }: MoodDetectorProps) {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-  const [isDetecting, setIsDetecting] = useState(false);
+  const [isDetectingMood, setIsDetectingMood] = useState(false); // Renamed for clarity, specific to this component's detection phase
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const { toast } = useToast();
 
-  // Request camera permission on mount
   useEffect(() => {
     const getCameraPermission = async () => {
       if (!navigator.mediaDevices?.getUserMedia) {
@@ -57,7 +53,6 @@ export default function MoodDetector({ onMoodDetected, isLoading }: MoodDetector
 
     getCameraPermission();
 
-    // Cleanup function to stop the stream when the component unmounts
     return () => {
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track) => track.stop());
@@ -75,31 +70,54 @@ export default function MoodDetector({ onMoodDetected, isLoading }: MoodDetector
       return;
     }
 
-    setIsDetecting(true);
-
-    // --- Simulation of Backend Processing ---
-    // In a real app:
-    // 1. Capture frame: const frame = captureFrame(videoRef.current);
-    // 2. Send frame to Python backend API: const mood = await sendToBackend(frame);
-    // 3. Call onMoodDetected(mood);
-
-    // Simulate backend delay and response
-    await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate network/processing time
-
-    // Simulate mood detection result (randomly choose one)
-    const detectedMood = possibleMoods[Math.floor(Math.random() * possibleMoods.length)];
-
+    setIsDetectingMood(true);
     toast({
-      title: "Mood Detected!",
-      description: `Looks like you're feeling ${detectedMood}. Generating playlist...`,
+      title: "Analyzing Expression...",
+      description: "Capturing frame and sending to AI for mood detection.",
     });
 
-    // Pass the *simulated* detected mood to the parent component
-    onMoodDetected(detectedMood);
+    try {
+      const video = videoRef.current;
+      const canvas = document.createElement('canvas');
+      // Ensure video dimensions are available
+      if (video.videoWidth === 0 || video.videoHeight === 0) {
+        toast({
+          variant: "destructive",
+          title: "Video Error",
+          description: "Could not get video dimensions. Please try again.",
+        });
+        setIsDetectingMood(false);
+        return;
+      }
+      canvas.width = video.videoWidth;
+      canvas.height = video.videoHeight;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) {
+        throw new Error("Could not get canvas context for frame capture.");
+      }
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      const photoDataUri = canvas.toDataURL('image/jpeg');
 
-    setIsDetecting(false);
-    // --- End Simulation ---
+      const moodResult = await detectMoodFromImage({ photoDataUri });
+      const detectedMood = moodResult.mood;
 
+      toast({
+        title: "Mood Detected!",
+        description: `AI analysis complete. Detected mood: ${detectedMood}. Generating playlist...`,
+      });
+
+      onMoodDetected(detectedMood);
+
+    } catch (error) {
+      console.error("Error detecting mood with AI:", error);
+      toast({
+        title: "AI Mood Detection Error",
+        description: (error instanceof Error ? error.message : "Failed to detect mood using AI. Please try again."),
+        variant: "destructive",
+      });
+    } finally {
+      setIsDetectingMood(false);
+    }
   }, [onMoodDetected, toast, hasCameraPermission]);
 
 
@@ -107,22 +125,21 @@ export default function MoodDetector({ onMoodDetected, isLoading }: MoodDetector
     <Card className="shadow-lg">
       <CardHeader>
         <CardTitle className="text-xl text-center md:text-left flex items-center gap-2">
-          <Webcam /> Detect Your Mood
+          <Webcam /> Detect Your Mood with AI
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-muted-foreground text-center md:text-left">
-          Allow camera access and click the button below to detect your mood from your expression.
+          Allow camera access, look at the camera, and click the button. Our AI will try to detect your mood from your expression.
         </p>
 
-        {/* Always render video element to attach stream */}
          <div className="relative aspect-video w-full max-w-md mx-auto bg-muted rounded-md overflow-hidden border">
             <video
             ref={videoRef}
             className="w-full h-full object-cover"
             autoPlay
             muted
-            playsInline // Important for mobile browsers
+            playsInline 
             />
              {hasCameraPermission === null && (
                 <div className="absolute inset-0 flex items-center justify-center bg-black/50">
@@ -147,17 +164,22 @@ export default function MoodDetector({ onMoodDetected, isLoading }: MoodDetector
           <div className="flex justify-center">
             <Button
               onClick={captureFrameAndDetectMood}
-              disabled={isLoading || isDetecting || hasCameraPermission !== true}
+              disabled={isLoading || isDetectingMood || hasCameraPermission !== true}
               size="lg"
-              aria-label="Detect mood from camera"
+              aria-label="Detect mood from camera using AI"
             >
-              {isDetecting || isLoading ? (
+              {isDetectingMood ? (
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               ) : (
                 <Camera className="mr-2 h-5 w-5" />
               )}
-              {isDetecting ? "Detecting..." : isLoading ? "Generating..." : "Detect Mood"}
+              {isDetectingMood ? "Detecting Mood..." : isLoading ? "Generating Playlist..." : "Detect Mood with AI"}
             </Button>
+          </div>
+        )}
+         {!isDetectingMood && isLoading && (
+          <div className="text-center mt-2">
+            <p className="text-sm text-muted-foreground">Playlist is being generated based on detected mood...</p>
           </div>
         )}
       </CardContent>
