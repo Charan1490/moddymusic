@@ -5,18 +5,19 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
-import { Camera, Webcam, Loader2, AlertCircle } from "lucide-react";
+import { Camera, Webcam, Loader2, AlertCircle, Cpu, Brain } from "lucide-react"; // Added Cpu and Brain icons
 import { useToast } from "@/hooks/use-toast";
-import { detectMoodFromImage } from "@/ai/flows/detect-mood-flow"; // Import the new AI flow
+import { detectMoodFromImage as detectMoodWithAI } from "@/ai/flows/detect-mood-flow";
 
 interface MoodDetectorProps {
   onMoodDetected: (mood: string) => void;
   isLoading: boolean; // This isLoading is for playlist generation, not mood detection itself
 }
 
-export default function MoodDetector({ onMoodDetected, isLoading }: MoodDetectorProps) {
+export default function MoodDetector({ onMoodDetected, isLoading: isPlaylistLoading }: MoodDetectorProps) {
   const [hasCameraPermission, setHasCameraPermission] = useState<boolean | null>(null);
-  const [isDetectingMood, setIsDetectingMood] = useState(false); // Renamed for clarity, specific to this component's detection phase
+  const [isDetectingMood, setIsDetectingMood] = useState(false);
+  const [detectionEngine, setDetectionEngine] = useState<'ai' | 'python' | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const { toast } = useToast();
@@ -60,7 +61,7 @@ export default function MoodDetector({ onMoodDetected, isLoading }: MoodDetector
     };
   }, [toast]);
 
-  const captureFrameAndDetectMood = useCallback(async () => {
+  const captureFrameAndDetectMood = useCallback(async (engine: 'ai' | 'python') => {
     if (!videoRef.current || !streamRef.current || hasCameraPermission === false) {
       toast({
         variant: "destructive",
@@ -71,15 +72,18 @@ export default function MoodDetector({ onMoodDetected, isLoading }: MoodDetector
     }
 
     setIsDetectingMood(true);
+    setDetectionEngine(engine);
     toast({
-      title: "Analyzing Expression...",
-      description: "Capturing frame and sending to AI for mood detection.",
+      title: `Analyzing Expression (${engine === 'ai' ? 'AI' : 'Python'})...`,
+      description: "Capturing frame and sending for mood detection.",
     });
+
+    let detectedMoodValue: string = "Neutral";
+    let detectionDetail: string | undefined = "Mood detection initiated.";
 
     try {
       const video = videoRef.current;
       const canvas = document.createElement('canvas');
-      // Ensure video dimensions are available
       if (video.videoWidth === 0 || video.videoHeight === 0) {
         toast({
           variant: "destructive",
@@ -87,6 +91,7 @@ export default function MoodDetector({ onMoodDetected, isLoading }: MoodDetector
           description: "Could not get video dimensions. Please try again.",
         });
         setIsDetectingMood(false);
+        setDetectionEngine(null);
         return;
       }
       canvas.width = video.videoWidth;
@@ -98,25 +103,47 @@ export default function MoodDetector({ onMoodDetected, isLoading }: MoodDetector
       ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
       const photoDataUri = canvas.toDataURL('image/jpeg');
 
-      const moodResult = await detectMoodFromImage({ photoDataUri });
-      const detectedMood = moodResult.mood;
+      if (engine === 'ai') {
+        const moodResult = await detectMoodWithAI({ photoDataUri });
+        detectedMoodValue = moodResult.mood;
+        detectionDetail = `AI analysis complete. Detected mood: ${detectedMoodValue}.`;
+      } else { // engine === 'python'
+        const response = await fetch('/api/detect-mood-python', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ photoDataUri }),
+        });
+        if (!response.ok) {
+          const errorData = await response.json().catch(() => ({ detail: "Python script request failed."}));
+          throw new Error(errorData.detail || `Python backend error: ${response.statusText}`);
+        }
+        const moodResult = await response.json();
+        detectedMoodValue = moodResult.mood || "Neutral";
+        detectionDetail = moodResult.detail || `Python analysis complete. Detected mood: ${detectedMoodValue}.`;
+
+        if(moodResult.error) {
+             console.warn("Python mood detection returned an error in response:", moodResult.error);
+             detectionDetail = `Python analysis note: ${moodResult.error}`;
+        }
+      }
 
       toast({
         title: "Mood Detected!",
-        description: `AI analysis complete. Detected mood: ${detectedMood}. Generating playlist...`,
+        description: `${detectionDetail} Generating playlist...`,
       });
-
-      onMoodDetected(detectedMood);
+      onMoodDetected(detectedMoodValue);
 
     } catch (error) {
-      console.error("Error detecting mood with AI:", error);
+      console.error(`Error detecting mood with ${engine}:`, error);
       toast({
-        title: "AI Mood Detection Error",
-        description: (error instanceof Error ? error.message : "Failed to detect mood using AI. Please try again."),
+        title: `Mood Detection Error (${engine === 'ai' ? 'AI' : 'Python'})`,
+        description: (error instanceof Error ? error.message : "Failed to detect mood. Please try again."),
         variant: "destructive",
       });
+      onMoodDetected("Neutral"); // Fallback to neutral on error before playlist gen
     } finally {
       setIsDetectingMood(false);
+      setDetectionEngine(null);
     }
   }, [onMoodDetected, toast, hasCameraPermission]);
 
@@ -125,12 +152,12 @@ export default function MoodDetector({ onMoodDetected, isLoading }: MoodDetector
     <Card className="shadow-lg">
       <CardHeader>
         <CardTitle className="text-xl text-center md:text-left flex items-center gap-2">
-          <Webcam /> Detect Your Mood with AI
+          <Webcam /> Detect Your Mood
         </CardTitle>
       </CardHeader>
       <CardContent className="space-y-4">
         <p className="text-muted-foreground text-center md:text-left">
-          Allow camera access, look at the camera, and click the button. Our AI will try to detect your mood from your expression.
+          Allow camera access, look at the camera, and choose a detection method.
         </p>
 
          <div className="relative aspect-video w-full max-w-md mx-auto bg-muted rounded-md overflow-hidden border">
@@ -161,23 +188,39 @@ export default function MoodDetector({ onMoodDetected, isLoading }: MoodDetector
         )}
 
         {hasCameraPermission === true && (
-          <div className="flex justify-center">
+          <div className="flex flex-col sm:flex-row justify-center items-center gap-3">
             <Button
-              onClick={captureFrameAndDetectMood}
-              disabled={isLoading || isDetectingMood || hasCameraPermission !== true}
+              onClick={() => captureFrameAndDetectMood('ai')}
+              disabled={isPlaylistLoading || isDetectingMood || hasCameraPermission !== true}
               size="lg"
-              aria-label="Detect mood from camera using AI"
+              aria-label="Detect mood from camera using AI (Gemini)"
+              className="w-full sm:w-auto"
             >
-              {isDetectingMood ? (
+              {(isDetectingMood && detectionEngine === 'ai') ? (
                 <Loader2 className="mr-2 h-5 w-5 animate-spin" />
               ) : (
-                <Camera className="mr-2 h-5 w-5" />
+                <Brain className="mr-2 h-5 w-5" />
               )}
-              {isDetectingMood ? "Detecting Mood..." : isLoading ? "Generating Playlist..." : "Detect Mood with AI"}
+              {(isDetectingMood && detectionEngine === 'ai') ? "Detecting (AI)..." : isPlaylistLoading ? "Generating Playlist..." : "Detect with AI"}
+            </Button>
+            <Button
+              onClick={() => captureFrameAndDetectMood('python')}
+              disabled={isPlaylistLoading || isDetectingMood || hasCameraPermission !== true}
+              size="lg"
+              variant="secondary"
+              aria-label="Detect mood from camera using Python (Local Model)"
+              className="w-full sm:w-auto"
+            >
+              {(isDetectingMood && detectionEngine === 'python') ? (
+                <Loader2 className="mr-2 h-5 w-5 animate-spin" />
+              ) : (
+                <Cpu className="mr-2 h-5 w-5" />
+              )}
+              {(isDetectingMood && detectionEngine === 'python') ? "Detecting (Python)..." : isPlaylistLoading ? "Generating Playlist..." : "Detect with Python"}
             </Button>
           </div>
         )}
-         {!isDetectingMood && isLoading && (
+         {!isDetectingMood && isPlaylistLoading && (
           <div className="text-center mt-2">
             <p className="text-sm text-muted-foreground">Playlist is being generated based on detected mood...</p>
           </div>
@@ -186,3 +229,5 @@ export default function MoodDetector({ onMoodDetected, isLoading }: MoodDetector
     </Card>
   );
 }
+
+    

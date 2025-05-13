@@ -1,0 +1,13 @@
+
+deepface>=0.0.79
+opencv-python>=4.0
+numpy>=1.20
+# Tensorflow is a primary backend for many models in DeepFace.
+# Specific versions might be needed depending on your system and Python version.
+# tensorflow>=2.10.0
+# Alternatively, if you prefer PyTorch backend for some models:
+# torch>=1.9.0
+# torchvision>=0.10.0
+# Ensure you have C++ build tools if installing from source or some packages require compilation.
+
+    
