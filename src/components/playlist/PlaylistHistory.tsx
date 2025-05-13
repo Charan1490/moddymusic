@@ -1,4 +1,4 @@
-import type { HistoryItem, Song } from "@/types";
+import type { HistoryItem, Playlist } from "@/types"; // Playlist is now string[]
 import {
   Accordion,
   AccordionContent,
@@ -7,11 +7,11 @@ import {
 } from "@/components/ui/accordion";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { History, CalendarDays, ListMusic, Eye } from "lucide-react";
+import { History, CalendarDays, ListMusic, Eye, Music } from "lucide-react";
 
 interface PlaylistHistoryProps {
   history: HistoryItem[];
-  onSelectHistoryItem: (playlist: Song[], mood: string) => void;
+  onSelectHistoryItem: (playlist: Playlist, mood: string) => void; // Playlist is string[]
 }
 
 export default function PlaylistHistory({ history, onSelectHistoryItem }: PlaylistHistoryProps) {
@@ -25,7 +25,7 @@ export default function PlaylistHistory({ history, onSelectHistoryItem }: Playli
           </CardTitle>
         </CardHeader>
         <CardContent>
-          <p className="text-muted-foreground text-center py-8">No playlists generated yet. Start by selecting a mood!</p>
+          <p className="text-muted-foreground text-center py-8">No playlists generated yet. Start by detecting your mood!</p>
         </CardContent>
       </Card>
     );
@@ -55,16 +55,21 @@ export default function PlaylistHistory({ history, onSelectHistoryItem }: Playli
                 </div>
               </AccordionTrigger>
               <AccordionContent className="pt-2 pb-4 px-2 bg-background/30 rounded-b-md">
-                <ul className="space-y-1 text-sm list-disc list-inside pl-2 max-h-48 overflow-y-auto">
+                 {/* Display simple list for string[] playlist */}
+                <ul className="space-y-1 text-sm max-h-48 overflow-y-auto pr-2">
                   {item.playlist.map((song, index) => (
-                    <li key={index} className="text-foreground/80">
-                      {song.title} - <span className="italic text-muted-foreground">{song.artist}</span>
+                     <li
+                      key={`${song}-${index}`}
+                      className="flex items-center gap-2 text-foreground/90 py-1"
+                    >
+                      <Music size={14} className="text-accent flex-shrink-0" />
+                      <span>{song}</span> {/* Display song string */}
                     </li>
                   ))}
                 </ul>
-                <Button 
-                  variant="outline" 
-                  size="sm" 
+                <Button
+                  variant="outline"
+                  size="sm"
                   className="mt-3 text-accent border-accent hover:bg-accent hover:text-accent-foreground"
                   onClick={() => onSelectHistoryItem(item.playlist, item.mood)}
                 >
