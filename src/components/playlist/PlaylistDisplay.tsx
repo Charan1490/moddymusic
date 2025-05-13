@@ -34,7 +34,7 @@ export default function PlaylistDisplay({
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {isLoading && !currentPlaylist && ( // Show main loading spinner only if playlist is not yet set
+        {isLoading && !playlist && ( // Show main loading spinner only if playlist is not yet set
           <div className="flex flex-col items-center justify-center h-60">
             <LoadingSpinner size={48} className="text-primary" />
             <p className="mt-4 text-muted-foreground">Generating your playlist...</p>
@@ -84,16 +84,16 @@ export default function PlaylistDisplay({
                   disabled={isLoading || !feedback.trim()}
                   className="w-full sm:w-auto"
                 >
-                  {isLoading ? (
+                  {isLoading && (!feedback || !feedback.trim()) ? ( // Check if loading is due to improving
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <Send className="mr-2 h-4 w-4" />
                   )}
-                  {isLoading ? "Improving..." : "Improve This Playlist"}
+                  {isLoading && (!feedback || !feedback.trim()) ? "Improving..." : "Improve This Playlist"}
                 </Button>
               </div>
             )}
-            {isLoading && currentPlaylist && ( // Show "Improving..." text if loading while playlist is already displayed
+            {isLoading && playlist && (feedback && feedback.trim()) && ( // Show "Improving..." text if loading while playlist is already displayed AND feedback is present (means improvement is in progress)
                 <div className="flex items-center justify-center pt-4 text-muted-foreground">
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                     <span>AI is working on your feedback...</span>
