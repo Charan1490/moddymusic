@@ -17,10 +17,27 @@ async function getMoodFromPython(photoDataUri: string): Promise<{ data: PythonMo
     const scriptPath = path.join(process.cwd(), 'src', 'python', 'detect_emotion.py');
 
     return new Promise((resolve) => {
-        const pythonProcess = spawn(pythonExecutable, [scriptPath, photoDataUri]);
+        // Do not pass photoDataUri as an argument here
+        const pythonProcess = spawn(pythonExecutable, [scriptPath]);
 
         let stdoutData = '';
         let stderrData = '';
+
+        // Write photoDataUri to stdin
+        if (pythonProcess.stdin) {
+            pythonProcess.stdin.write(photoDataUri);
+            pythonProcess.stdin.end();
+        } else {
+            console.error('Python process stdin is null. Cannot send image data.');
+            resolve({
+                data: {
+                    error: "Failed to send image data to Python script.",
+                    detail: "Stdin is not available on the Python process."
+                },
+                status: 500
+            });
+            return;
+        }
 
         pythonProcess.stdout.on('data', (data) => {
             stdoutData += data.toString();
@@ -36,12 +53,9 @@ async function getMoodFromPython(photoDataUri: string): Promise<{ data: PythonMo
                     const errJson = JSON.parse(stderrData) as PythonMoodResponse;
                     if (errJson.script_error || errJson.error) {
                         console.error(`Python script error (stderr JSON):`, errJson);
-                        // Script itself reported an error, but executed.
-                        // This could be a "logical" error like no face found.
-                        // We return 200 but with error information.
                         resolve({ 
                             data: { 
-                                mood: "Neutral", // Default mood on script-reported error
+                                mood: "Neutral", 
                                 error: "Python script internal error",
                                 detail: errJson.script_error || errJson.error || "Unknown error from Python script." 
                             }, 
@@ -50,7 +64,6 @@ async function getMoodFromPython(photoDataUri: string): Promise<{ data: PythonMo
                         return;
                     }
                 } catch (e) {
-                    // stderr had data, but it wasn't JSON. This is a more severe script problem.
                     console.error(`Python script stderr (raw, non-JSON): ${stderrData}`);
                     resolve({ 
                         data: { 
@@ -61,8 +74,6 @@ async function getMoodFromPython(photoDataUri: string): Promise<{ data: PythonMo
                     });
                     return;
                 }
-                // If stderrData was present but not caught above as a JSON error,
-                // it implies a less structured error. Treat as execution failure.
                 console.error(`Python script stderr (unhandled): ${stderrData}`);
                 resolve({ 
                     data: { 
@@ -77,14 +88,14 @@ async function getMoodFromPython(photoDataUri: string): Promise<{ data: PythonMo
             if (code === 0) {
                 try {
                     const result: PythonMoodResponse = JSON.parse(stdoutData);
-                    if (result.error) { // Error reported by script logic in stdout
+                    if (result.error) { 
                         resolve({ 
                             data: { 
                                 mood: "Neutral", 
                                 error: "Python script logic error",
                                 detail: result.error 
                             }, 
-                            status: 200 // Still 200 as script ran, but reported an issue
+                            status: 200 
                         });
                     } else if (result.mood) {
                         resolve({ data: result, status: 200 });
@@ -142,9 +153,6 @@ export async function POST(request: NextRequest) {
         }
 
         const result = await getMoodFromPython(photoDataUri);
-        // If the result from Python indicates an error in its data but was status 200 (e.g. logical error like no face),
-        // we might want to change the HTTP status code here, or let the client handle the 'error' field in the JSON.
-        // For now, we forward the status from getMoodFromPython.
         return NextResponse.json(result.data, { status: result.status });
 
     } catch (error) {
