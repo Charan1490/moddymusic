@@ -13,7 +13,7 @@ interface PythonMoodResponse {
 
 // Helper function to encapsulate Python script logic
 async function getMoodFromPython(photoDataUri: string): Promise<{ data: PythonMoodResponse, status: number }> {
-    const pythonExecutable = process.env.PYTHON_EXECUTABLE || 'python3';
+    const pythonExecutable = process.env.PYTHON_EXECUTABLE || (process.platform === 'win32' ? 'python' : 'python3');
     const scriptPath = path.join(process.cwd(), 'src', 'python', 'detect_emotion.py');
 
     return new Promise((resolve) => {
@@ -56,25 +56,27 @@ async function getMoodFromPython(photoDataUri: string): Promise<{ data: PythonMo
                         resolve({ 
                             data: { 
                                 mood: "Neutral", 
-                                error: "Python script internal error",
+                                error: "Python script internal error.",
                                 detail: errJson.script_error || errJson.error || "Unknown error from Python script." 
                             }, 
-                            status: 200 
+                            status: 200 // Still 200 as the API call succeeded, but script had an issue
                         });
                         return;
                     }
                 } catch (e) {
+                    // This case handles if stderrData is not valid JSON, meaning a more fundamental script error.
                     console.error(`Python script stderr (raw, non-JSON): ${stderrData}`);
                     resolve({ 
                         data: { 
                             error: "Python script execution failed with non-JSON error output.", 
-                            detail: stderrData 
+                            detail: `Python script error: ${stderrData}. Ensure Python and its dependencies (DeepFace, OpenCV, TensorFlow/PyTorch) are correctly installed. If Python is not in your system's PATH, set the PYTHON_EXECUTABLE environment variable.`
                         }, 
                         status: 500 
                     });
                     return;
                 }
-                console.error(`Python script stderr (unhandled): ${stderrData}`);
+                 // If JSON parsing of stderr worked but didn't fit known error patterns above
+                console.error(`Python script stderr (unhandled JSON): ${stderrData}`);
                 resolve({ 
                     data: { 
                         error: "Python script execution failed with unhandled stderr.", 
@@ -95,7 +97,7 @@ async function getMoodFromPython(photoDataUri: string): Promise<{ data: PythonMo
                                 error: "Python script logic error",
                                 detail: result.error 
                             }, 
-                            status: 200 
+                            status: 200 // Script ran, but reported an error
                         });
                     } else if (result.mood) {
                         resolve({ data: result, status: 200 });
@@ -120,10 +122,14 @@ async function getMoodFromPython(photoDataUri: string): Promise<{ data: PythonMo
                 }
             } else {
                 console.error(`Python script exited with code ${code}. Stderr: ${stderrData}. Stdout: ${stdoutData}`);
+                let detailMessage = stderrData || stdoutData || "No output from script.";
+                if (stderrData.includes("No such file or directory") || stderrData.toLowerCase().includes("not found")) {
+                    detailMessage += ` Ensure '${pythonExecutable}' is correctly installed and in your system PATH, or set the PYTHON_EXECUTABLE environment variable.`;
+                }
                 resolve({ 
                     data: { 
                         error: `Python script failed with exit code ${code}.`,
-                        detail: stderrData || stdoutData || "No output from script."
+                        detail: detailMessage
                     }, 
                     status: 500 
                 });
@@ -132,10 +138,14 @@ async function getMoodFromPython(photoDataUri: string): Promise<{ data: PythonMo
 
         pythonProcess.on('error', (err) => {
             console.error('Failed to start Python subprocess.', err);
+            let detailMsg = err.message;
+            if (err.message.includes('ENOENT')) { // Error NO ENTity (file not found)
+                detailMsg = `Failed to start Python process. Command '${pythonExecutable}' not found. Ensure Python is installed and in your system PATH, or set the PYTHON_EXECUTABLE environment variable in your .env file (e.g., PYTHON_EXECUTABLE=/usr/bin/python3 or C:\\Python39\\python.exe).`;
+            }
             resolve({ 
                 data: { 
                     error: 'Failed to start Python subprocess.', 
-                    detail: err.message 
+                    detail: detailMsg 
                 }, 
                 status: 500 
             });
@@ -161,3 +171,4 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: 'Internal Server Error', detail: errorMessage }, { status: 500 });
     }
 }
+

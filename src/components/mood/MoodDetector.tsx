@@ -113,17 +113,24 @@ export default function MoodDetector({ onMoodDetected, isLoading: isPlaylistLoad
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ photoDataUri }),
         });
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ detail: "Python script request failed."}));
-          throw new Error(errorData.detail || `Python backend error: ${response.statusText}`);
-        }
         const moodResult = await response.json();
+
+        if (!response.ok || moodResult.error) {
+          let errorMsg = moodResult.detail || moodResult.error || `Python backend error: ${response.statusText}`;
+          if (response.status === 500 && (errorMsg.includes("Failed to start Python subprocess") || errorMsg.includes("Command") && errorMsg.includes("not found"))) {
+            errorMsg = `Python script execution failed. Ensure Python is installed and in your system PATH. If not, set the PYTHON_EXECUTABLE environment variable in your .env file. Details: ${moodResult.detail || moodResult.error}`;
+          } else if (response.status === 500 && moodResult.error) {
+             errorMsg = `Python script error: ${moodResult.detail || moodResult.error}. Check Python dependencies.`;
+          }
+          throw new Error(errorMsg);
+        }
+        
         detectedMoodValue = moodResult.mood || "Neutral";
         detectionDetail = moodResult.detail || `Python analysis complete. Detected mood: ${detectedMoodValue}.`;
 
-        if(moodResult.error) {
+        if(moodResult.error) { // This case might be redundant if !response.ok covers it.
              console.warn("Python mood detection returned an error in response:", moodResult.error);
-             detectionDetail = `Python analysis note: ${moodResult.error}`;
+             detectionDetail = `Python analysis note: ${moodResult.error}`; // Potentially override with more specific error below
         }
       }
 
@@ -135,9 +142,13 @@ export default function MoodDetector({ onMoodDetected, isLoading: isPlaylistLoad
 
     } catch (error) {
       console.error(`Error detecting mood with ${engine}:`, error);
+      let description = (error instanceof Error ? error.message : "Failed to detect mood. Please try again.");
+      if (engine === 'python' && (description.includes("Failed to start Python subprocess") || description.includes("not found") || description.includes("ENOENT"))) {
+          description = `Python script execution failed. Ensure Python is installed and in your system PATH. You might need to set the PYTHON_EXECUTABLE environment variable in your .env file (e.g., PYTHON_EXECUTABLE=python3 or C:\\Python39\\python.exe). Original error: ${description}`;
+      }
       toast({
         title: `Mood Detection Error (${engine === 'ai' ? 'AI' : 'Python'})`,
-        description: (error instanceof Error ? error.message : "Failed to detect mood. Please try again."),
+        description: description,
         variant: "destructive",
       });
       onMoodDetected("Neutral"); // Fallback to neutral on error before playlist gen
